@@ -1,0 +1,980 @@
+---
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Table of Contents
+
+#### Page 1........................................Table of Contents, Group Members, Introduction Page 2........................................Date selection
+
+##### Page 1........................................Table of Contents, Group Members, Introduction
+
+##### Page 2........................................Date selection
+
+##### Page 2-7.....................................Analyzing urbanization
+
+##### Page 7-9.....................................Analyzing urbanization and top 40 vaccinations
+
+##### Page 9-11...................................Stats by classes
+
+##### Page 11-15.................................Analyzing internet usage
+
+##### Page 15-17.................................Covid vs Regions & Death rate
+
+##### Page 17- 23................................Analyzing Covid response
+
+##### Page 24......................................Conclusion
+
+
+## Introduction
+
+#### For our report, we decided to work with datasets that could have some relationship with covid vaccinations, cases, and governmental response. To do this we utilized the following datasets along with the four live datasets provided: urbanization, internet users, world regions, deathrate, population & population density. The overall goal of our report is to develop any connections there may be between the number of cases/vaccinations and the population/ urbanization of a given region. This might help us gain insight on how covid impacted various regions differently. Through the knowledge we hope to gain we could identify factors on why covid had either a severe or minimal affect.
+
+---
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# repos="https://utstat.toronto.edu/cran/"
+library(tidyverse)
+library(stringr)
+library(lubridate)
+library(maps)
+library(dplyr)
+library(psych)
+
+
+
+covid_cases <- read_csv("https://covid.ourworldindata.org/data/owid-covid-data.csv",
+                        col_types = cols(
+                          .default = col_double(),
+                          date = col_date(format =""),
+                          location = col_character()
+                        ))
+covid_cases %>% head()
+
+covid_vaccs <- read_csv("https://raw.githubusercontent.com/owid/covid-19-data/master/public/data/vaccinations/vaccinations.csv")
+covid_vaccs %>% head()
+
+covid_tests <- read_csv("https://covid.ourworldindata.org/data/testing/covid-testing-all-observations.csv")
+covid_tests %>% head()
+
+covid_response <- read_csv("https://raw.githubusercontent.com/OxCGRT/covid-policy-tracker/master/data/OxCGRT_latest.csv",
+                           col_types = cols(
+                             .default = col_character(),
+                             Date = col_date(format = "%Y%m%d"))
+                           ) %>%
+    mutate(
+      across(starts_with("Confirmed"), as.integer),
+      across(ends_with("Flag"), as.logical), 
+      across(ends_with("Index"), as.double), 
+      across(ends_with("ForDisplay"), as.double),
+      )
+covid_response %>% head()
+
+regionclassification <- read_tsv("WorldRegions.csv",skip = 1)
+regionclassification %>% head()
+
+area <- read_tsv("AREA.csv", col_names = c("Country", "Area", "ranking", "reigon"),skip = 1)
+area %>% head()
+
+population <- read_tsv("POPULATION.csv", col_names = c("Country", "Population", "ranking", "reigon"),skip = 1)
+population %>% head()
+
+populationdistribution <- read_tsv("POPULATIONDISTRIBUTION.csv")
+populationdistribution %>% head()
+
+urbanization <- read_tsv("URBANIZATION.csv")
+urbanization %>% head()
+
+internetusage <- read_tsv("INTERNETUSER.csv")
+internetusage %>% head()
+
+
+```
+
+```{r include = FALSE}
+covid_cases
+covid_response
+covid_tests
+covid_vaccs
+regionclassification
+area
+population
+populationdistribution
+urbanization
+```
+
+```{r,include=FALSE}
+urbanization_tidy <- urbanization %>%
+  select(`Country Name`, `Country Code`, `2020`) %>%
+  rename("Urbanization Level" = `2020`)
+
+internetusage_tidy <- internetusage %>%
+  select(`Country Name`, `Country Code`, `2019`) %>%
+  rename("Individuals Internet Usage" = `2019`)
+
+covid_response_new <- covid_response %>% 
+  dplyr::select(`CountryName`,CountryCode,Date,`C2_Workplace closing`,`C5_Close public transport`,`C4_Restrictions on gatherings`,`C6_Stay at home requirements` ,ConfirmedCases,GovernmentResponseIndex,EconomicSupportIndex,`E1_Income support`,`E2_Debt/contract relief`,`E4_International support`)
+
+covid_response_tidy <- covid_response_new[rowSums(is.na(covid_response_new)) == 0, ]
+```
+
+
+.
+
+
+
+Date Selection
+
+When picking our dates we wanted to see the difference between the peak points of the 2 waves of covid-19. To do this we looked at the data set covid_cases and ploted the amount of new cases each day of 2021
+
+```{r, include=FALSE}
+cases_per_date <- covid_cases %>%
+  select(date, new_cases) %>%
+  filter(date > "2021-01-01") %>%
+  group_by(date)
+
+```
+
+```{r,warning=FALSE,echo=FALSE, out.width="50%"}
+cases_per_date %>%
+  ggplot(mapping = aes(x = date, y = new_cases)) +
+  geom_point() +
+  geom_smooth()
+```
+
+As we can see there are 2 clear waves of covid where daily cases rise then fall, The 2 happen around late april and late august.
+
+To find the dates we spit the year into 2 sections before and after july first as you can see in the next graphs this clearly defines the 2 waves
+
+```{r,warning=FALSE,echo=FALSE, out.width="50%"}
+cases_per_date %>%
+  filter(date < "2021-07-01") %>%
+  ggplot(mapping = aes(x = date, y = new_cases)) +
+  ggtitle("Before 2021-07-01")+
+  geom_point() +
+  geom_smooth()
+cases_per_date %>%
+  filter(date > "2021-07-01") %>%
+  ggplot(mapping = aes(x = date, y = new_cases)) +
+  ggtitle("After 2021-07-01")+
+  geom_point() +
+  geom_smooth()
+```
+
+Now we filtered for the days with the most new cases of covid_19 in 2021 before and after july first giving us our dates.
+
+April 23th with 908289 new cases and August 6th with 821816 new cases
+
+```{r echo= FALSE}
+d1 <- cases_per_date %>%
+  filter(date < "2021-07-01") %>%
+  arrange(desc(new_cases))
+d2 <-cases_per_date %>%
+  filter(date > "2021-07-01") %>%
+  arrange(desc(new_cases))
+d1[1,c("date","new_cases")]
+d2[1,c("date","new_cases")]
+```
+
+`- Analysing Urbanization`
+
+Now we wanted to look at the relation urbanization has on covid vacinations, test and cases
+
+```{r include=FALSE}
+covid_cases_date1 <- covid_cases %>%
+  filter(date == "2021-04-28")
+covid_cases_date2 <- covid_cases %>% 
+  filter(date == "2021-08-06")
+covid_vaccs_date1 <- covid_vaccs %>% 
+  filter(date == "2021-04-28")
+covid_vaccs_date2 <- covid_vaccs %>%
+    filter(date == "2021-08-06")
+covid_tests_date1 <- covid_tests %>% 
+  filter(Date == "2021-04-28")
+covid_tests_date2 <- covid_tests %>%
+    filter(Date == "2021-08-06")
+```
+
+first we looked at cases. We merged the urbanization dataset with the covid dataset. Then we made the boxplot so we could get rid of the outliars from our data
+
+```{r warning=FALSE, echo=FALSE, message=FALSE,out.width="50%"}
+urbanization_covid_date1 <- urbanization_tidy %>%
+  right_join(covid_cases_date1,by = c("Country Name" = "location"))
+
+urbanization_covid_date2 <- urbanization_tidy %>%
+  right_join(covid_cases_date2,by = c("Country Name" = "location"))
+
+urbanization_covid_date1 %>% 
+  ggplot(mapping = aes(x = `Urbanization Level`, y =new_cases))+
+  ggtitle("2021-04-28")+
+  geom_boxplot()
+
+urbanization_covid_date2 %>% 
+  ggplot(mapping = aes(x = `Urbanization Level`, y = new_cases))+
+  ggtitle("2021-08-06")+
+  geom_boxplot()
+
+```
+
+looking at the box plots we cans see that there are a lot of outliars and because there is so much data it is very hard to see where the bulk of the data lies, so we will look at the inner quartile range to find a pbase for our scatter plot
+
+```{r}
+summary(urbanization_covid_date1$new_cases)
+summary(urbanization_covid_date2$new_cases)
+IQR(urbanization_covid_date1$new_cases, na.rm = TRUE)
+IQR(urbanization_covid_date2$new_cases, na.rm = TRUE)
+```
+
+as we can see the data is closer to the 0 with came huge spikes. letes take the data before the iqr which is 2118 on the first date and 1812 on the second
+
+```{r,warning=FALSE, echo=FALSE,out.width="50%"}
+urbanization_covid_date1 %>%
+  filter(`new_cases` < 2118) %>%
+    ggplot(mapping = aes(x = `Urbanization Level`, y = new_cases))+
+    ggtitle("2021-04-28")+
+    geom_point(bins = 70)+
+  geom_smooth()
+
+urbanization_covid_date2 %>%
+  filter(`new_cases` < 1812) %>%
+    ggplot(mapping = aes(x = `Urbanization Level`, y = new_cases))+
+    ggtitle("2021-08-06")+
+    geom_point(bins = 70) +
+  geom_smooth()
+```
+
+from this we can see that there is not that much correlation between vaccinations and urbanization as the data is very scattered.
+
+now we will look at the same thing except with vaccinations
+
+```{r, warning=FALSE,echo=FALSE, message=FALSE,out.width="50%"}
+urbanization_vacc_date1 <- urbanization_tidy %>%
+  right_join(covid_vaccs_date1,by = c("Country Name" = "location")) %>%
+    filter(iso_code %>% str_detect("^[^OWID_]"))
+
+
+urbanization_vacc_date1 %>% 
+  ggplot(mapping = aes(x = `Urbanization Level`, y = daily_vaccinations))+
+  ggtitle("2021-04-28")+
+  geom_boxplot()
+
+urbanization_vacc_date2 <- urbanization_tidy %>%
+  right_join(covid_vaccs_date2,by = c("Country Name" = "location")) %>%
+    filter(iso_code %>% str_detect("^[^OWID_]"))
+
+urbanization_vacc_date2 %>% 
+  ggplot(mapping = aes(x = `Urbanization Level`, y = daily_vaccinations))+
+  ggtitle("2021-08-06")+
+  geom_boxplot()
+```
+
+once again the data and outliars are too large to see the range on a box plot so we look at the iqr of the data
+
+```{r}
+summary(urbanization_vacc_date1$daily_vaccinations)
+summary(urbanization_vacc_date2$daily_vaccinations)
+IQR(urbanization_vacc_date1$daily_vaccinations, na.rm = TRUE)
+IQR(urbanization_vacc_date2$daily_vaccinations, na.rm = TRUE)
+```
+
+we can see that the outliars are very top heavy so we will filter the data below 31488 on the first date and 55719.75 on the second
+
+```{r warning=FALSE,echo=FALSE,out.width="50%"}
+urbanization_vacc_date1 %>% 
+  filter(daily_vaccinations < 31488) %>%
+  ggplot(mapping = aes(x = `Urbanization Level`, y = daily_vaccinations))+
+  ggtitle("2021-04-28")+
+  geom_point(bins = 70) +
+  geom_smooth()
+
+
+
+urbanization_vacc_date2 %>% 
+  filter(daily_vaccinations < 55719) %>%
+  ggplot(mapping = aes(x = `Urbanization Level`, y = daily_vaccinations))+
+  ggtitle("2021-08-06")+
+  geom_point(bins = 70) +
+  geom_smooth()
+```
+
+In both vaccinations and cases the data is skewed left spiking around and urbanization level the high 70s. Another thing that can be noted is that in both on the first date in both vaccinations and cases spike in the high 70s is a lot steeper and on the second date.
+
+When we look at both the cases and the vaccinations we can see the correlation between the 2 as the graph have almost the same line meaning there is some correlation between vaccinations and cases which would make sense. But when looking at the vaccinations or cases verses urbanization there seems to be very little corrolation. As one point of the data could be 0 and the next in the millions
+
+```{r, include=FALSE}
+urb_vacc_date1IQR <-urbanization_vacc_date1 %>% 
+  filter(daily_vaccinations < 31488)
+urb_vacc_date2IQR <-urbanization_vacc_date2 %>% 
+  filter(daily_vaccinations < 55179)
+
+urb_cases_date1IQR <-urbanization_covid_date1 %>% 
+  filter(new_cases < 2118)
+urb_cases_date2IQR <-urbanization_covid_date2 %>% 
+  filter(new_cases < 1812)
+
+```
+
+```{r}
+cor(urbanization_vacc_date1$daily_vaccinations,urbanization_vacc_date1$`Urbanization Level`, use = "complete.obs")
+cor(urbanization_vacc_date2$daily_vaccinations,urbanization_vacc_date2$`Urbanization Level`, use = "complete.obs")
+
+cor(urbanization_covid_date1$new_cases,urbanization_covid_date1$`Urbanization Level`, use = "complete.obs")
+cor(urbanization_covid_date2$new_cases,urbanization_covid_date2$`Urbanization Level`, use = "complete.obs")
+```
+
+This low corrolation means that it would be very hard to create a model for urbanization and cases/vaccines as they do not corrolate to eachother much
+
+We also did the same thing with covid testings and got the same result
+
+```{r, include=FALSE}
+urbanization_test_date1 <- urbanization_tidy %>%
+  right_join(covid_tests_date1, by = c("Country Code" = "ISO code"))%>%
+  arrange(desc(`Daily change in cumulative total`))
+
+urbanization_test_date2 <- urbanization_tidy %>%
+  right_join(covid_tests_date2, by = c("Country Code" = "ISO code"))%>%
+  arrange(desc(`Daily change in cumulative total`))
+
+```
+
+where is the boxplot for the testings
+
+```{r warning=FALSE,echo=FALSE,out.width="50%"}
+urbanization_test_date1 %>%
+  ggplot(mapping = aes(x = `Urbanization Level`, y = `Daily change in cumulative total`))+
+  ggtitle("2021-04-28")+
+  geom_boxplot()
+urbanization_test_date2 %>%
+  ggplot(mapping = aes(x = `Urbanization Level`, y = `Daily change in cumulative total`))+
+  ggtitle("2021-08-06")+
+  geom_boxplot()
+```
+
+Once againg we found the iqr to look at the bulk of the data
+
+```{r}
+summary(urbanization_test_date1$`Daily change in cumulative total`)
+summary(urbanization_test_date2$`Daily change in cumulative total`)
+IQR(urbanization_test_date1$`Daily change in cumulative total`, na.rm = TRUE)
+IQR(urbanization_test_date2$`Daily change in cumulative total`, na.rm = TRUE)
+```
+
+The first graphs IQR is 50158 and the second is 60895, from the min and max we can see that the data is all the major outliars are abouve the IQR so we filtered under it
+
+```{r warning=FALSE,echo=FALSE,out.width="50%"}
+urbanization_test_date1 %>%
+  filter(`Daily change in cumulative total` < 50149) %>%
+  ggplot(mapping = aes(x = `Urbanization Level`, y = `Daily change in cumulative total`))+
+  ggtitle("2021-04-28")+
+  geom_point()+
+  geom_smooth()
+urbanization_test_date2 %>%
+    filter(`Daily change in cumulative total` < 62138) %>%
+    ggplot(mapping = aes(x = `Urbanization Level`, y = `Daily change in cumulative total`))+
+  ggtitle("2021-08-06")+
+  geom_point()+
+  geom_smooth()
+
+
+```
+
+The chart looks similar to the cases and vaccinations vs urbanization, Once again there seems to be little corrolation as the data is all over the place
+
+```{r}
+cor(urbanization_test_date1$`Daily change in cumulative total`,urbanization_test_date1$`Urbanization Level`, use = "complete.obs")
+cor(urbanization_test_date2$`Daily change in cumulative total`,urbanization_test_date2$`Urbanization Level`, use = "complete.obs")
+```
+
+\~\~ Urbanization daily vaccinations top 40
+
+Because we noticed that that the first date was a lot more left skewed then the second date we decided to look at the places with the top 40 most vaccinations and compare there urbanization
+
+```{r include=FALSE, message=FALSE}
+urb_vacc_date1 <- urbanization_vacc_date1 %>%
+  filter(is.na(`Country Code`) == FALSE) %>%
+  arrange(desc(daily_vaccinations)) %>%
+  slice(1:40) %>%
+  select("Country Name", "Country Code", "date", "daily_vaccinations", "Urbanization Level")
+urb_vacc_date2 <- urbanization_vacc_date2 %>%
+  filter(is.na(`Country Code`) == FALSE) %>%
+  arrange(desc(daily_vaccinations)) %>%
+  slice(1:40) %>%
+  select("Country Name", "Country Code", "date", "daily_vaccinations", "Urbanization Level")
+
+urbanization_vaccs_dates <- urb_vacc_date1 %>%
+  full_join(urb_vacc_date2) %>%
+  mutate(date = as.character(date))
+
+```
+
+```{r, warning=FALSE, echo=FALSE,out.width="50%"}
+urbanization_vaccs_dates %>% 
+  ggplot()+
+  geom_hex(mapping = aes(y = daily_vaccinations, x = `Urbanization Level`))+
+  facet_grid(.~date)
+  
+```
+
+from this we can see that the although still left skewed there are a lot more places with low urbanization getting vaccinations in the second date.
+
+To summarise our finding in urbanization. On march 28th the vaccinations and cases where more linear and top heavy, while on April 6th there was more fluctuation.
+
+One theory we had of why the data is behaving this way is because more urban places tend to be more populated and richer, making them more in demand for vaccines and more likley to get cases making the data left skewed.
+
+The reason that the cases and vaccinations are more fluxuant on the second date is because it is later on in the covid cycle and the urban places where have already been vaccinated and are now giving vaccinations to less popluated and less wealthy places.
+
+The reason that the first date is lexx fluxuant is because these wealther more populated places are still consuming all the vaccinations and are getting more cases because the popuation is higher.
+
+To prove this hypothesis we can look into the population denisity by taking a population and dividing it by area and compare it with both the urbanziation.
+
+```{r, include=FALSE}
+population
+area
+pop_density <- population %>%
+  left_join(area, by = c("Country")) %>%
+  mutate("population_density" = Population/Area)
+pop_density
+```
+
+```{r, warning=FALSE,echo=FALSE, message=FALSE,out.width="50%"}
+urb_pop_density <-pop_density %>%
+  left_join(urbanization_covid_date1, by = c("Country" = "Country Name"))
+
+urb_pop_density %>%
+  ggplot(mapping = aes(y = population_density.x, x = `Urbanization Level`), na.rm = TRUE)+
+  geom_boxplot()
+```
+
+```{r}
+IQR(urb_pop_density$population_density.x)
+```
+
+```{r , warning=FALSE,echo=FALSE,out.width="50%"}
+urb_pop_density %>%
+  filter(population_density.x <195) %>%
+  ggplot(mapping = aes(y = population_density.x, x = `Urbanization Level`), na.rm = TRUE)+
+  geom_point()
+```
+
+When looking at the population density verses the urbanization level it disproves the population side of our hypothesis as the the data is very scattered. We would look more into the economy side of the hypothesis but there is no economy dataset.
+
+`- Looking At Stats By Class`
+
+One thing we noticed while looking through the vaccine and cases files is that there are there is information given by class. In this part of the report we will be looking at the variance in cases and vaccines in different classes.
+
+```{r, include=FALSE}
+urbanization_vacc_date1_OWID <- urbanization_tidy %>%
+  right_join(covid_vaccs_date1,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+
+urbanization_vacc_date2_OWID <- urbanization_tidy %>%
+  right_join(covid_vaccs_date2,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+```
+
+To look into the variance between classes we decided to make a count chart showing the difference in vaccination and cases between the class on each day.
+
+```{r, echo=FALSE,warning=FALSE, message=FALSE,out.width="50%"}
+urbanization_vacc_date1_OWID %>% 
+  full_join(urbanization_vacc_date2_OWID) %>%
+    mutate(date = as.character(date)) %>%
+  ggplot()+
+  ggtitle("Income Vs Vaccinations")+
+  geom_count(mapping = aes(x = daily_vaccinations,y = `Country Name`, color = date))
+
+
+urbanization_cases_date1_OWID <- urbanization_tidy %>%
+  right_join(covid_cases_date1,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+urbanization_cases_date2_OWID <- urbanization_tidy %>%
+  right_join(covid_cases_date2,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+
+urbanization_cases_date1_OWID %>% 
+  full_join(urbanization_cases_date2_OWID) %>%
+    mutate(date = as.character(date)) %>%
+  ggplot()+
+  ggtitle("Income Vs New Cases")+
+  geom_count(mapping = aes(x = new_cases,y = `Country Name`, color = date))
+
+urbanization_cases_date1_OWID %>% 
+  full_join(urbanization_cases_date2_OWID) %>%
+    mutate(date = as.character(date)) %>%
+  ggplot()+
+  ggtitle("Income Vs Total Cases")+
+  geom_count(mapping = aes(x = total_cases,y = `Country Name`, color = date))
+
+```
+
+when looking at these graphs the changes are very interesting. on the second day, all of the middle class getting vaccinated at a way higher rate then the first date. Also when looking at both dates the low income population is being vaccinated at a way lower rate than everyone else.
+
+Then when looking at the amount of cases on each day respectively. The upper middle class has around the same amount of cases on each day yet they are being vaccinated at a significantly higher rate than the first day.
+
+One thing that may be making the data inconsistent is the population of each class is different. If a certain class has more population they will have more cases and vaccinations. (This section uses the population data from the covid cases dataset not the population dataset as the population dataset does not cover the classes)
+
+```{r, warning=FALSE,echo=FALSE, message=FALSE,out.width="50%",figures-side}
+urbanization_cases_date1_OWID %>%
+  select(-(iso_code)) %>%
+  left_join(urbanization_vacc_date1_OWID, be = "date") %>%
+  ggplot()+
+  ggtitle("Vaccinations vs Population by class on the first date")+
+  geom_point(mapping = aes(x = population, y = daily_vaccinations, color = `Country Name`))
+
+urbanization_cases_date2_OWID %>%
+  select(-(iso_code)) %>%
+  left_join(urbanization_vacc_date2_OWID, be = "date") %>%
+  ggplot()+
+  ggtitle("Vaccinations vs Population by class on the second date")+
+  geom_point(mapping = aes(x = population, y = daily_vaccinations, color = `Country Name`))
+```
+
+using these graphs we can see in the chart of population vs daily vaccinations that almost stays the same between both dates (of course the second date is scaled higher than the first) except that the vaccinations in the high income class dips
+
+```{r, warning=FALSE,echo=FALSE,out.width="50%"}
+urbanization_cases_date1_OWID %>%
+  ggplot()+
+  ggtitle("Cases vs Population by class on the first date")+
+  geom_point(mapping = aes(x = population, y = total_cases, color = `Country Name`))
+
+urbanization_cases_date2_OWID %>%
+  ggplot()+
+  ggtitle("Cases vs Population by class on the second date")+
+  geom_point(mapping = aes(x = population, y = total_cases, color = `Country Name`))
+```
+
+Here we see that the high income class has a very high amount of cases even though they do not make up that much of the population. we decided to calculate the percent of new cases, percent of total cases and percent of population each class takes up This graph also justifies some of the other data we saw. for instance the reason that the low income population is getting vaccinations and cases at a overall lower rate is because they take up a very little amount of the population compared to the other classes
+
+```{r, include=FALSE}
+
+urbanization_cases_date1_OWID %>%
+  mutate("pertot" = (total_cases/sum(total_cases)*100), "pernew" = (new_cases/sum(new_cases)*100), "perpop" = (population/sum(population)*100)) %>%
+  select(`Country Name`, "pertot", "pernew", "perpop")
+urbanization_cases_date2_OWID %>%
+  mutate("pertot" = (total_cases/sum(total_cases)*100), "pernew" = (new_cases/sum(new_cases)*100), "perpop" = (population/sum(population)*100)) %>%
+  select(`Country Name`, "pertot", "pernew", "perpop")
+```
+
+From this calculation we see that the upper class is only 15.7% of the population and takes up over 40 percent of the total cases on both dates. That means that almost half of all covid cases are coming for 15% of the population. We can also see that through time the high income population has not done much to stop there cases from rising as they have almost double the percent of new cases on the second date then the first
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+urbanization_cases_date1_OWID %>%
+  select(-(iso_code)) %>%
+  left_join(urbanization_vacc_date1_OWID, be = "date") %>%
+  mutate("pertot" = (total_vaccinations/sum(total_vaccinations)*100), "pernew" = (daily_vaccinations/sum(daily_vaccinations)*100), "perpop" = (population/sum(population)*100)) %>%
+  select(`Country Name`, "pertot", "pernew", "perpop")
+urbanization_cases_date2_OWID %>%
+  select(-(iso_code)) %>%
+  left_join(urbanization_vacc_date2_OWID, be = "date") %>%
+  mutate("pertot" = (total_vaccinations/sum(total_vaccinations)*100), "pernew" = (new_vaccinations/sum(daily_vaccinations)*100), "perpop" = (population/sum(population)*100)) %>%
+  select(`Country Name`, "pertot", "pernew", "perpop")
+```
+
+The total vaccinations between both dates is also interesting. As we can see high income class once again has a very high rate of daily vaccination and total vaccination considering its low population percentage. In the second date we can see that the percent of total and new vaccinations have gone down in the high income population. This is probably because they got vaccinated early so other classes are catching up.
+
+Another thing that we can see is at how much of a higher rate the upper income classes gets vaccinated than the lower classes. in the both dates the higher income groups (high income and upper middle income) make up more then 80 percent of the vaccinated population. whilst having the almost the same amount of population percentage
+
+This is concerning as it shows that the lower classes are not getting vaccinated.
+
+```{r, echo=FALSE,out.width="50%"}
+urbanization_cases_date1_OWID %>%
+  ggplot() +
+  ggtitle("Urbanization level Vs Classs")+
+  geom_col(mapping = aes(x = fct_reorder(`Country Name`,`Urbanization Level`), y = `Urbanization Level`))
+```
+
+Lastly when looking at the corrolation between urbanization and class. This shows that the high class people generaly live in more urban places. This sort of help us with our hypothsis found in urbanization that the higher the income the more likley to be vaccinated but we would need more data to prove it.
+
+`- analyzing internet usage`
+
+merging internetusage with new case at certain date
+
+```{r out.width="50%", echo= FALSE, warning=FALSE}
+internetusage_date1 <- internetusage_tidy %>%
+  right_join(covid_cases_date1,by = c("Country Name" = "location")) 
+internetusage_date2 <- internetusage_tidy %>%
+  right_join(covid_cases_date2,by = c("Country Name" = "location"))
+internetusage_date1_tidy <- internetusage_date1[!is.na(internetusage_date1$`Individuals Internet Usage`),]
+internetusage_date2_tidy <- internetusage_date2[!is.na(internetusage_date2$`Individuals Internet Usage`),]
+internetusage_date2_tidy %>% 
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = new_cases))+
+  ggtitle("2021-08-06")+
+  geom_boxplot()
+internetusage_date1_tidy %>% 
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = new_cases))+
+  ggtitle("2021-04-28")+
+  geom_boxplot()
+```
+
+By showing boxplot we remove outlier to get more accurate info
+
+```{r out.width="50%", echo=FALSE, warning=FALSE}
+internetusage_date1_tidy %>%
+  filter(`total_cases` < 100000) %>%
+    ggplot(mapping = aes(y = `Individuals Internet Usage`, x = new_cases))+
+    ggtitle("2021-04-28")+
+    geom_point()+
+  geom_smooth(method= "lm")
+internetusage_date2_tidy %>%
+  filter(`total_cases` < 100000) %>%
+    ggplot(mapping = aes(y = `Individuals Internet Usage`, x = new_cases))+
+    ggtitle("2021-08-06")+
+    geom_point() +
+  geom_smooth(method = "lm")
+```
+
+Based on our experiences, we had the hypothesis that Covid would cause an increasing internet usage as more people would be in quarantine to check this hypothesis I set new_cases as xin and Internet Usage as yin and created a point chart.
+
+Showing the correlation between Internet Usage and new_cases. It's not that accurate but It suggests that internet usage increases as more new_cases reported. However, a negative correlation is shown on date2, there might have some correlation to the country urbanization level since internet requires a relatively better urban.
+
+Redo the same thing to covid_tests.
+
+```{r out.width="50%", echo = FALSE, warning=FALSE}
+internetusage_test_date1 <- internetusage_tidy %>%
+  right_join(covid_tests_date1, by = c("Country Code" = "ISO code"))%>%
+  arrange(desc(`Daily change in cumulative total`))
+internetusage_test_date2 <- internetusage_tidy %>%
+  right_join(covid_tests_date2, by = c("Country Code" = "ISO code"))%>%
+  arrange(desc(`Daily change in cumulative total`))
+internetusage_test_date1_tidy <- internetusage_test_date1[!is.na(internetusage_test_date1$`Individuals Internet Usage`),]
+internetusage_test_date2_tidy <- internetusage_test_date2[!is.na(internetusage_test_date2$`Individuals Internet Usage`),]
+internetusage_test_date1_tidy %>%
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = `Daily change in cumulative total`))+
+  geom_boxplot()
+internetusage_test_date2_tidy %>%
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = `Daily change in cumulative total`))+
+  geom_boxplot()
+internetusage_test_date1_tidy %>%
+  filter(`Daily change in cumulative total` < 400000) %>%
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = `Daily change in cumulative total`))+
+  geom_point() +
+  geom_smooth(method="lm")
+internetusage_test_date2_tidy %>%
+  filter(`Daily change in cumulative total` < 400000) %>%
+  ggplot(mapping = aes(x = `Individuals Internet Usage`, y = `Daily change in cumulative total`))+
+  geom_point() +
+  geom_smooth(method="lm")
+
+```
+
+However, from this daily change vs. internet-usage. We found that as internet usage increases, daily change tend to have a increasing trend as well. As more internet usage sates more people stay at home and do everything through internet, daily change still increases. Internet usage is not the main factor that affect daily change.
+
+Moving to the country with most daily new cases and see how internet usage changes there.
+
+```{r out.width="50%", echo =FALSE, warning=FALSE}
+internetusage_case_date1 <- internetusage_date1_tidy %>%
+  filter(is.na(`Country Code`) == FALSE) %>%
+  arrange(desc(new_cases)) %>%
+  slice(1:20) %>%
+  select("Country Name", "Country Code", "date", "new_cases", "Individuals Internet Usage")
+internetusage_case_date2 <- internetusage_date2_tidy %>%
+  filter(is.na(`Country Code`) == FALSE) %>%
+  arrange(desc(new_cases)) %>%
+  slice(1:20) %>%
+  select("Country Name", "Country Code", "date", "new_cases", "Individuals Internet Usage")
+internetusage_case_dates <- internetusage_case_date1 %>%
+  full_join(internetusage_case_date2) %>%
+  mutate(date = as.character(date))
+internetusage_case_dates %>% 
+  ggplot()+
+  geom_point(mapping = aes(x = new_cases, y = `Individuals Internet Usage`, colour = date))
+```
+
+The point are kinda messy but we can tell that as more daily new_cases a country have, it tends to be more internet-usage in that country. However, from the table we can see that India has a lot new_cases, but their internet-usage is even lower than 50%. That is because internet-usage is mostly affected by people's income level and country's economic situation. India is not a developed country and they have to use most of their money to deal with these massive daily new_cases. As of the date, we can see that there isn't much differences between April 28th and August 6th. That is because most people have already set up their internet in the early stage of Covid (April 28th). To prove what we stated above, we looked into the data by income level.
+
+```{r,echo=FALSE, warning= FALSE}
+internetusage_vacc_date1_OWID <- internetusage_tidy %>%
+  right_join(covid_vaccs_date1,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+internetusage_vacc_date2_OWID <- internetusage_tidy %>%
+  right_join(covid_vaccs_date2,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+```
+
+```{r out.width="50%",warning=FALSE,echo=FALSE}
+internetusage_vacc_date1_OWID %>% 
+  mutate(date = as.character(date)) %>%
+  ggplot()+
+  geom_count(mapping = aes(x = daily_vaccinations,y = `Individuals Internet Usage`, color = `Country Name`))
+internetusage_vacc_date2_OWID %>% 
+  mutate(date = as.character(date)) %>%
+  ggplot()+
+  geom_count(mapping = aes(x = daily_vaccinations,y = `Individuals Internet Usage`, color = `Country Name`))
+internetusage_cases_date1_OWID <- internetusage_tidy %>%
+  right_join(covid_cases_date1,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+internetusage_cases_date2_OWID <- internetusage_tidy %>%
+  right_join(covid_cases_date2,by = c("Country Name" = "location")) %>%
+  filter(`Country Name`== "High income"|`Country Name`== "Upper middle income"|`Country Name`== "Lower middle income"|`Country Name` == "Low income")
+internetusage_cases_date1_OWID %>% 
+  mutate(date = as.character(date)) %>%
+  ggplot()+
+  geom_count(mapping = aes(x = new_cases,y = `Individuals Internet Usage`, color = `Country Name`))
+internetusage_cases_date2_OWID %>% 
+  mutate(date = as.character(date)) %>%
+  ggplot()+
+  geom_count(mapping = aes(x = new_cases,y = `Individuals Internet Usage`, color = `Country Name`))
+
+```
+
+From the graph above we can tell that the amount of vaccs and daily new_cases won't affect the amount of internet-usage that much, by filtering country using income level, we see that higher income level tends to have higher internet-usage and that's what we assumed before.
+
+`- Covid vs Reigons` To look further into the factors of how covid correlates with the regions it affects we will look at the covid cases data along with the death rate of different countries. Firstly to get started we will choose one country of focus from all the different regions of the world (North America, Europe, Asia, Africa, and Oceania). After tidying and combining the data of cases and death rates during the dates we chose, we will analyze the data we have found.
+
+```{r, results='hide',warning=FALSE,include=FALSE}
+deathrate <- read_tsv("DEATHRATE.csv")
+covid_cases_date1 <- covid_cases %>%
+  filter(date == "2021-04-28") %>%
+  select(location, date, total_cases, new_cases, total_deaths, new_deaths) 
+covid_cases_date2 <- covid_cases %>% 
+  filter(date == "2021-08-06") %>%
+  select(location, date, total_cases, new_cases, total_deaths, new_deaths) 
+deathrate_tidy <- deathrate %>%
+  mutate("Deathrate" = value) %>%
+  select(Deathrate, name)
+
+# europe stuff
+europe_cases1 <- covid_cases_date1 %>%
+  filter(location == "Lithuania")%>%
+  mutate("Region" = "EU")
+europe_cases2 <- covid_cases_date2 %>%
+   filter(location == "Lithuania") %>%
+  mutate("Region" = "EU")
+deathrate_EU <- deathrate_tidy %>%
+  filter(name=="Lithuania") %>%
+    select(Deathrate)
+
+# Asia stuff
+asia_cases1 <- covid_cases_date1 %>%
+  filter(location == "Russia") %>%
+  mutate("Region" = "Asia")
+asia_cases2 <- covid_cases_date2 %>%
+  filter(location == "Russia")%>%
+  mutate("Region" = "Asia")
+deathrate_ASIA <- deathrate_tidy %>%
+  filter(name == "Russia") %>%
+    select(Deathrate)
+
+#NA stuff
+na_cases1 <- covid_cases_date1 %>%
+  filter(location == "Canada") %>%
+  mutate("Region" = "NA")
+na_cases2 <- covid_cases_date2 %>%
+  filter(location == "Canada") %>%
+  mutate("Region" = "NA")
+deathrate_NA <- deathrate_tidy %>%
+    filter(name == "Canada") %>%
+    select(Deathrate)
+
+#africa stuff
+afr_cases1 <- covid_cases_date1 %>%
+    filter(location == "Chad") %>%
+  mutate("Region" = "Africa")
+afr_cases2 <- covid_cases_date2 %>%
+  filter(location == "Chad") %>%
+  mutate("Region" = "Africa")
+deathrate_afr <- deathrate_tidy %>%
+    filter(name == "Chad") %>%
+    select(Deathrate)
+
+# middle east stuff 
+mid_cases1 <- covid_cases_date1 %>%
+  filter(location == "Georgia") %>%
+  mutate("Region" = "Mid East")
+mid_cases2 <- covid_cases_date2 %>%
+  filter(location == "Georgia") %>%
+  mutate("Region" = "Mid East")
+deathrate_ME <- deathrate_tidy %>%
+  filter(name == "Georgia") %>%
+  select(Deathrate)
+
+#Oceania
+oceania_cases1 <- covid_cases_date1 %>%
+   filter(location == "Australia") %>%
+  mutate("Region" = "Oceania")
+oceanai_cases2 <- covid_cases_date2 %>%
+     filter(location == "Australia") %>%
+  mutate("Region" = "Oceania")
+deathrate_oceania <- deathrate_tidy %>%
+  filter(name == "Australia") %>%
+  select(Deathrate)
+```
+
+```{r,warning=FALSE, echo = FALSE}
+#date1
+comb_deathrate = bind_rows(deathrate_EU, deathrate_ASIA, deathrate_NA, deathrate_afr, deathrate_ME, deathrate_oceania)
+combined = bind_rows(europe_cases1, asia_cases1, na_cases1, afr_cases1, mid_cases1, oceania_cases1)
+Date_1 = bind_cols(combined,comb_deathrate)
+Date_1
+#date2
+combined1 = bind_rows(europe_cases2, asia_cases2, na_cases2, afr_cases2, mid_cases2, oceanai_cases2)
+Date_2 = bind_cols(combined1, comb_deathrate)
+Date_2
+```
+
+Now we have all the data tidy and combined for all the different regions. Just from the tibbles we can see a few trends and relations between the amount of cases for each region, the deathrate, and the total cases. Creating graphs will help us visualize these trends and help aid in understanding as to why covid impacted the different regions in various ways in relation to the deathrates.
+
+Looking at the time of our first chosen date (2021-04-28):
+
+```{r, warning= FALSE, echo=FALSE,out.width="50%"}
+ggplot(Date_1) + geom_point(aes(x=location, y=total_deaths)) 
+ggplot(Date_1, aes(x=location,y=total_cases)) + geom_point()
+ggplot(Date_1, aes(x=Region, y=Deathrate)) + geom_col(position = "dodge")
+ggplot(Date_1, aes(x=Region,y=new_deaths)) + geom_col(position = "dodge")
+ggplot(Date_1, aes(x=Region,y=new_cases)) + geom_col(position = "dodge")
+```
+
+Looking at the graphs produced from the data, we learn that the EU (Europe) nation seems to have the highest rate of death in comparison to the other regions. This however does not mean that the amount of deaths are higher in Europe. In fact the highest amount of new deaths on this date (April 28th 2021) was in Asia. There may seem to be some relation with this to the amount of covid cases checked that day. Asian region also had the highest amount of new covid cases which could directly relate to the newer deaths occurring. Furthermore, Asia has a high death rate in comparison to the other regions which can be seen in the 3rd graph. This graph also shows how the data for death rates of regions seems to be skewed. Lastly the graphs of total deaths and total cases look extremely simialar which suggests a relation in deaths due to covid.
+
+Now looking towards the second date (2021-08-06):
+
+```{r, warning= FALSE, echo=FALSE,out.width="50%"}
+ggplot(Date_2) + geom_point(aes(x=location, y=total_deaths)) 
+ggplot(Date_2, aes(x=location,y=total_cases)) + geom_point()
+
+ggplot(Date_2, aes(x=Region,y=new_deaths)) + geom_col(position = "dodge")
+ggplot(Date_2, aes(x=Region,y=new_cases)) + geom_col(position = "dodge")
+
+```
+
+Analyzing the second date bears the same fruit. It seems as if the region of Asia is superior in the amount of cases vs the amount of deaths which again proves the relation between deaths which could be mostly caused by covid. To prove this further the graphs of total cases and total deaths for this day are again very similar.
+
+To conclude this section of the analysis, it is safe to say that covid has made a very harmful impact upon the region of Asia and relates to all the deaths occuring in that region. Furthermore, the rate of death aligns with the amount of deaths occurring during both dates.
+
+`- Analyzing COVID Response`
+
+We decided to look at how Area affects covid response. First we took the two dates that we decided to anylize and put it into two different data frames
+
+```{r, warning=FALSE,echo=FALSE}
+area
+covid_response_Date1 <- covid_response_tidy %>%
+  filter(Date == "2021-04-28")
+  na.omit(covid_response_tidy)
+covid_response_Date2 <- covid_response_tidy %>%
+  filter(Date == "2021-08-06")
+  na.omit(covid_response_tidy)
+covid_response_Date1
+covid_response_Date2
+```
+
+Next we joined area and covid response, by doing so we will be able to have the rank of each nation and get a clear visual of why certain circumstances are happening to diffrent nations.
+
+```{r, warning=FALSE,echo=FALSE}
+area_covid_response_Date1 <- area %>%
+  right_join(covid_response_Date1,by = c("Country" = "CountryName"))
+area_covid_response_Date2 <- area %>%
+  right_join(covid_response_Date2,by = c("Country" = "CountryName"))
+area_covid_response_Date1
+area_covid_response_Date2
+```
+
+We decided that studying the relation between the confirmed cases and the governments response per country would add more of a dimension to the data frame. We would be able to see exactly when each country decided to focus their efforts on COVID.
+
+The first thing we did was use interquartile range in order to find the outliers on April 28th. These outliers would most likley be the countries who either didn't take COVID seriously or didn't have the resources to combat it.
+
+```{r,out.width="50%",echo= FALSE}
+boxplot.stats(area_covid_response_Date1$GovernmentResponseIndex)$out
+```
+
+As you can see out of all the countries only 7 didn't fall in the average. We can theroies that these countries may have had low economic support or didn;t have that many cases. So in order to see what the problem maybe we decided to filter out the 7 countries and try to find what maybe the problem.
+
+```{r, echo=FALSE}
+p <- area_covid_response_Date1 %>%
+    filter(GovernmentResponseIndex < 21)
+p
+  
+```
+
+From looking at the seven countries and their ranking we can tell that most of these aren't the most highly ranked countries in the world. The average cases substantiated on this date was 655861, all 7 countries fall short of this average, Vanuatu has only 4 cases, Kirbati has only 0 cases, and Solomon Islands only had 20 cases. For the other 4 countries we don't really know the ratio between cases and their ppopulation. By doing so we can get a better understanding of how COVID had effected them.
+
+The first thing we did was combine the population and new area COVID response data frame we can see how many people on this date got COVID
+
+```{r, echo=FALSE,warning=FALSE}
+NewDataFrame <- area_covid_response_Date1 %>%
+  left_join(population,by = c("Country" = "Country")) 
+NewDataFrame
+as.double(NewDataFrame$Populatio)
+ Tanzania <- NewDataFrame %>% filter(Country == "Tanzania") 
+ CAR <- NewDataFrame %>% filter(Country == "Central African Republic")
+ Nicaragua <-  NewDataFrame %>% filter(Country == "Nicaragua")
+ SI <- NewDataFrame %>% filter(Country == "Solomon Islands")
+ tz <- ((Tanzania$ConfirmedCases)/(Tanzania$Population)) * 100
+ car <- ((CAR$ConfirmedCases)/(CAR$Population)) * 100
+ Nic <- ((Nicaragua$ConfirmedCases)/(Nicaragua$Population)) * 100
+ si <-  ((SI$ConfirmedCases)/(SI$Population)) * 100
+ si
+ Nic
+ car
+ tz
+  
+```
+
+Almost none of the countries have been impacted by the increase of covid cases in April
+
+Now lets look at 2021-08-06
+
+```{r,out.width="50%",echo=FALSE,warning=FALSE}
+ggplot(area_covid_response_Date2) +
+  aes(x = "", y = GovernmentResponseIndex) +
+  geom_boxplot(fill = "#0c4c8a") +
+  theme_minimal()
+boxplot.stats(area_covid_response_Date2$GovernmentResponseIndex)$out
+```
+
+Now looking at the data 5 months later there is less outliers but the response has lowered only by a small amount.
+
+There seems to be only 2 outliers, which reveals that more countries have stepped up between the 5 months.
+
+```{r,echo=FALSE}
+area_covid_response_Date2 %>%
+  filter(GovernmentResponseIndex < 21)
+```
+
+Out of the seven only two counties have the lowest government response. But whats interesting is if you look at the amount of cases you can tell that there was an increase so why didn't these two counties government not step in when cases started to increase. These two countries seem to b the two that disprove our theory.
+
+First we took a step back and see if there is a proper correlation between the ranking of a country and their government response. By knowing if there is we can see if the ranking of the two nations has anything to do with the government response to the increase of cases.
+
+```{r,out.width="50%",echo=FALSE}
+pairs.panels(area_covid_response_Date1[,c('GovernmentResponseIndex', 'ranking')])
+pairs.panels(area_covid_response_Date2[,c('GovernmentResponseIndex', 'ranking')])
+covid_response_new
+```
+
+As you can see there isn't much of a correlation between ranking and government response what this means is that it doesn't matter if a country has the lowest ranking or the highest ranking all countries would put in effort in order to keep COVID cases to a minimum. But there still is a bit of a correlation between the two.One theory that came out of this is that the two countries don't have the resources to sustain their country so we decided to go and figure out how this maybe the case. Therefore we can conclude that the two countries left
+
+Next we will visually perceive how much each regime contributed in fortifying income to there people as the stricken (or diminished) the stay at home retirement.
+
+```{r,out.width="50%",echo=FALSE}
+area_covid_response_Date1 %>%
+  ggplot(aes(x= `E1_Income support`,fill =`C6_Stay at home requirements` )) +
+  theme_bw() +
+  geom_bar() +
+  labs( y = "Number of Countries", title = "Inconomic support based on stay at home requirments April 28th")
+area_covid_response_Date2 %>%
+  ggplot(aes(x= `E1_Income support`,fill =`C6_Stay at home requirements` )) +
+  theme_bw() +
+  geom_bar() +
+  labs( y = "Number of Countries", title = "Inconomic support based on stay at home requirments August 6th ")
+
+```
+
+We can visually perceive that a consequential quantity of counties provided remotely economic support after the kept their stay at home laws but as you can optically discern there are a few counties that we much more rigorous about their abode requisites but they at least provided marginally income support. But in 5 months you can visually perceive an incrementation of countries now providing less income as more countries gear towards a less stringent stay at home requirement.
+
+# Conclusion
+
+#### - For our analysis we chose the dates April 28th 2021 and August 6th 2021. This three month period was going to be a good indicator for us as all countries in the world were at full swing in the pandemic and we expected to see a clear correlation between dates. This in conjunction with some countries opening their borders allowed us to identify areas of trend in our population data.
+
+#### -By allowing time for vaccines to become available to people world wide we hoped to use these dates hoped to see correlation between vaccinations and urbanization. This data helped us discover that the vaccination rates compared to covid case rates were positively correlated while vaccination rates compared to urbanization there was nearly no correlation. -When we noticed that the first date was more skewed then the second date, we decided to look exclusively with places with the top 40 most vaccinations and compare these too urbanization. This allowed us to see that while the data was still skewed their was now a correlation in low urbanization areas.
+
+#### -When we compared income vs vaccination rates we found a clear correlation between people of higher income being highly vaccinated on both dates, while the middle class increased their vaccinations for the second date and the low income stayed at a very low vaccination rate on both dates
+
+#### -Finally when we compared number of daily covid cases in each country to the average vaccinations per million that the world had on each day we were able to see a correlation between Tanzania, CAR, Nicaragua, Solomon Islands, Vanutu and Kiribati. These countries each had very few to no vaccinations reported on April 28th. This shows the correlation between lower government controlled countries having a say on their citizens getting vaccinated or just had a lower availability of vaccines.
